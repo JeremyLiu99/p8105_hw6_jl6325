@@ -52,5 +52,95 @@ weather_df =
   select(name, id, everything())
 ```
 
+Set bootstrap
+```{r}
+set.seed(1)
+
+fit <-
+  lm(tmax ~ tmin + prcp, data = weather_df)
+
+boot_sample <-
+  function(df) {
+    sample_frac(df, replace = TRUE)
+  }
+
+boot_straps <-
+  weather_df |>
+  modelr::bootstrap(n = 5000) |>
+  mutate(
+    models = map(strap, \(df) lm(tmax ~ tmin + prcp, data = df)),
+    result1 = map(models, broom::tidy),
+    result2 = map(models, broom::glance)
+  ) |>
+  select(-strap, -models)
+```
+
+Get r_square
+```{r}
+r_square <-
+  boot_straps |>
+  select(result2, .id) |>
+  unnest(result2) |>
+  select(r.squared, .id)
+```
+
+Plot r_square
+```{r}
+r_square_plot <-
+  r_square |>
+  ggplot(aes(x = r.squared)) +
+  geom_histogram()
+
+r_square_plot
+```
 
 
+Plot estimates
+```{r}
+log_beta = 
+  boot_straps |>
+  select(result1, .id) |>
+  unnest(result1) |>
+  select(.id, term, estimate) |>
+  mutate(term = ifelse(term == "tmin", "beta_1",
+                       ifelse(term == "prcp", "beta_2", term))) |>
+  pivot_wider(names_from = term,
+              values_from = estimate) |>
+  mutate(log_betas = log(beta_1 * beta_2))
+
+log_beta_plot <-
+  log_beta |>
+  ggplot(
+    aes(x = log_betas)
+  ) +
+  geom_histogram()
+
+log_beta_plot
+```
+
+95%CI for r_square
+```{r}
+r_square_95CI <-
+  boot_straps |>
+  unnest(result1, result2) |>
+  summarise(
+    lowertile = quantile(r.squared, 0.025),
+    uppertile = quantile(r.squared, 0.975)
+  ) |>
+  knitr::kable()
+r_square_95CI
+```
+
+
+
+95%CI for log_betas
+```{r}
+lowertile <- quantile(log_beta$log_betas, 0.025, na.rm = TRUE)
+uppertile <- quantile(log_beta$log_betas, 0.975, na.rm = TRUE)
+confidence_interval_log <- c(lowertile, uppertile)
+confidence_interval_log
+```
+
+95%CI for r_square: (0.8885495,	0.9406812)
+
+95%CI for log_betas: (-8.981559, -4.601673)
